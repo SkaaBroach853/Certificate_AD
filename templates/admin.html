@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AD Admin</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20260418b" />
+</head>
+<body class="admin-body">
+  <main class="admin-wrap">
+    <section id="loginPanel" class="admin-card">
+      <h1>AD Admin Login</h1>
+      <p>Sign in to manage website section images.</p>
+      <label for="adminUser">Username</label>
+      <input id="adminUser" type="text" placeholder="Enter username" autocomplete="username" />
+      <label for="adminPass">Password</label>
+      <input id="adminPass" type="password" placeholder="Enter password" autocomplete="current-password" />
+      <button id="adminLoginBtn" type="button">Login</button>
+      <p id="adminLoginStatus" class="status-line"></p>
+      <p class="hint-line">Credentials are configured in your local <code>.env</code> file.</p>
+    </section>
+
+    <section id="adminPanel" class="admin-card hidden">
+      <div class="admin-top">
+        <h2>Website Content Manager</h2>
+        <div class="admin-actions">
+          <a href="/" class="link-btn">Open Generator</a>
+          <a href="/showcase" class="link-btn">Open Showcase</a>
+          <button id="adminLogoutBtn" type="button">Logout</button>
+        </div>
+      </div>
+
+      <p class="hint-line">Drag and drop images into a card, crop with sliders, then save. Stored in browser for frontend display.</p>
+
+      <div class="admin-grid">
+        <article class="admin-upload-card">
+          <h3>Hero Background</h3>
+          <div class="drop-zone" data-target="ad_hero_image" data-input="heroImageInput">
+            <p>Drop image here</p>
+            <small>or click to browse</small>
+          </div>
+          <input id="heroImageInput" type="file" accept=".png,.jpg,.jpeg,.webp" class="hidden-input" />
+          <button type="button" data-target="ad_hero_image" class="clear-btn">Clear</button>
+          <img id="heroPreview" alt="Hero preview" class="upload-preview" />
+        </article>
+
+        <article class="admin-upload-card">
+          <h3>About Background</h3>
+          <div class="drop-zone" data-target="ad_about_image" data-input="aboutImageInput">
+            <p>Drop image here</p>
+            <small>or click to browse</small>
+          </div>
+          <input id="aboutImageInput" type="file" accept=".png,.jpg,.jpeg,.webp" class="hidden-input" />
+          <button type="button" data-target="ad_about_image" class="clear-btn">Clear</button>
+          <img id="aboutPreview" alt="About preview" class="upload-preview" />
+        </article>
+
+        <article class="admin-upload-card">
+          <h3>Story Background</h3>
+          <div class="drop-zone" data-target="ad_story_image" data-input="storyImageInput">
+            <p>Drop image here</p>
+            <small>or click to browse</small>
+          </div>
+          <input id="storyImageInput" type="file" accept=".png,.jpg,.jpeg,.webp" class="hidden-input" />
+          <button type="button" data-target="ad_story_image" class="clear-btn">Clear</button>
+          <img id="storyPreview" alt="Story preview" class="upload-preview" />
+        </article>
+      </div>
+
+      <p id="adminStatus" class="status-line"></p>
+    </section>
+  </main>
+
+  <div id="cropModal" class="crop-modal hidden" role="dialog" aria-modal="true" aria-label="Image crop dialog">
+    <div class="crop-card">
+      <h3>Crop Background Image</h3>
+      <p>Use zoom and position to fit the section nicely.</p>
+      <canvas id="cropCanvas" width="960" height="540"></canvas>
+
+      <div class="crop-controls">
+        <label for="cropZoom">Zoom</label>
+        <input id="cropZoom" type="range" min="100" max="300" value="100" />
+
+        <label for="cropX">Horizontal Position</label>
+        <input id="cropX" type="range" min="0" max="100" value="50" />
+
+        <label for="cropY">Vertical Position</label>
+        <input id="cropY" type="range" min="0" max="100" value="50" />
+      </div>
+
+      <div class="crop-actions">
+        <button id="cancelCropBtn" type="button">Cancel</button>
+        <button id="applyCropBtn" type="button">Apply Crop</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/admin.js') }}?v=20260418b"></script>
+</body>
+</html>

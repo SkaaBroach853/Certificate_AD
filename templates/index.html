@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AD Studio</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20260418a" />
+</head>
+<body>
+  <div class="noise-overlay" aria-hidden="true"></div>
+
+  <nav class="bubble-menu fixed" aria-label="Main navigation">
+    <button
+      type="button"
+      id="bubbleMenuToggle"
+      class="bubble toggle-bubble menu-btn"
+      aria-label="Toggle navigation"
+      aria-pressed="false"
+    >
+      <span class="menu-line"></span>
+      <span class="menu-line short"></span>
+    </button>
+  </nav>
+
+      <div id="bubbleMenuItems" class="bubble-menu-items fixed" aria-hidden="true">
+    <ul class="pill-list" role="menu" aria-label="Menu links">
+      <li role="none" class="pill-col">
+        <a role="menuitem" href="/generator" class="pill-link" style="--item-rot:-6deg;--hover-bg:#3b82f6;--hover-color:#ffffff;">
+          <span class="pill-label">create certificate</span>
+        </a>
+      </li>
+      <li role="none" class="pill-col">
+        <a role="menuitem" href="#hero" class="pill-link" style="--item-rot:8deg;--hover-bg:#10b981;--hover-color:#ffffff;">
+          <span class="pill-label">home</span>
+        </a>
+      </li>
+      <li role="none" class="pill-col">
+        <a role="menuitem" href="#story" class="pill-link" style="--item-rot:7deg;--hover-bg:#f59e0b;--hover-color:#ffffff;">
+          <span class="pill-label">story</span>
+        </a>
+      </li>
+      <li role="none" class="pill-col">
+        <a role="menuitem" href="#footer" class="pill-link" style="--item-rot:-8deg;--hover-bg:#8b5cf6;--hover-color:#ffffff;">
+          <span class="pill-label">contact</span>
+        </a>
+      </li>
+    </ul>
+  </div>
+
+  <main class="slides" id="slidesRoot">
+    <section id="hero" class="slide hero" data-bg-key="ad_hero_image">
+      <div class="image-layer"></div>
+      <div id="heroSplash" class="splash-cursor-container" aria-hidden="true"></div>
+      <div class="overlay-layer"></div>
+      <div class="content">
+        <div class="border-glow-card ad-hero-glow reveal">
+          <span class="edge-light"></span>
+          <div class="border-glow-inner hero-card-content">
+            <p class="eyebrow">AD Digital Studio</p>
+            <h1>AD</h1>
+            <p class="tagline">Crafting Digital Identity</p>
+          </div>
+        </div>
+        <div class="hero-cta-wrap reveal">
+          <a class="hero-cta-btn" href="/generator">Create Certificate</a>
+        </div>
+      </div>
+    </section>
+
+    <section id="about" class="slide about" data-bg-key="ad_about_image">
+      <div class="image-layer"></div>
+      <div id="aboutDotField" class="dot-field-container" aria-hidden="true"></div>
+      <div class="overlay-layer soft"></div>
+      <div class="content split reveal">
+        <div>
+          <p class="eyebrow">About</p>
+          <h2>We design experiences, not just certificates.</h2>
+          <p class="body-copy">Every name tells a story. AD combines cinematic visuals, precise typography, and structured interaction to build memorable recognition journeys.</p>
+        </div>
+        <div class="glass-card">
+          <h3>Design Principles</h3>
+          <ul>
+            <li>Strong visual hierarchy</li>
+            <li>Minimal, elegant interactions</li>
+            <li>Readable contrast and spacing</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="story" class="slide story" data-bg-key="ad_story_image">
+      <div class="image-layer"></div>
+      <div class="overlay-layer"></div>
+      <div class="image-trail-shell" id="storyImageTrail" aria-hidden="true">
+        <div class="image-trail-content">
+          <div class="content__img"><div class="content__img-inner" data-trail-image="1"></div></div>
+          <div class="content__img"><div class="content__img-inner" data-trail-image="2"></div></div>
+          <div class="content__img"><div class="content__img-inner" data-trail-image="3"></div></div>
+          <div class="content__img"><div class="content__img-inner" data-trail-image="4"></div></div>
+          <div class="content__img"><div class="content__img-inner" data-trail-image="5"></div></div>
+          <div class="content__img"><div class="content__img-inner" data-trail-image="6"></div></div>
+        </div>
+      </div>
+      <div class="content story-layout reveal">
+        <div class="story-copy">
+          <p class="eyebrow">The Creator</p>
+          <h2>Aaditya Devadiga</h2>
+          <p class="story-lead">I built this because running multiple club events made one thing obvious: manual certificate creation keeps stealing time from the work that actually matters.</p>
+          <p class="story-body">As president of my club, I kept seeing the same problem repeat. Every event needed certificates, every batch took effort, and existing systems asked for money while still limiting what could be customized. So I decided to build my own generator instead.</p>
+          <p class="story-body">That gave me two things I cared about most: speed for repeated event work, and freedom to create any layout, workflow, or feature I want without waiting on someone else's platform.</p>
+          <div class="story-highlights">
+            <span>Built to save time</span>
+            <span>Made for club workflows</span>
+            <span>Unlimited feature freedom</span>
+          </div>
+        </div>
+        <div class="story-profile-wrap">
+          <div class="tilted-card-figure" id="creatorTiltedCard">
+            <div class="tilted-card-inner">
+              <img
+                src="{{ url_for('static', filename='img/aaditya_img.jpeg') }}"
+                alt="Aaditya Devadiga"
+                class="tilted-card-img"
+              />
+              <div class="tilted-card-overlay">
+                <p class="tilted-card-demo-text">Aaditya Devadiga</p>
+              </div>
+            </div>
+            <figcaption class="tilted-card-caption">Creator of AD Studio</figcaption>
+          </div>
+          <div class="story-mini-note">
+            <strong>Why this exists</strong>
+            <p>To replace repetitive manual certificate work with something faster, flexible, and fully under your control.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer id="footer" class="slide footer">
+      <div class="content reveal">
+        <div class="contact-layout">
+          <div class="contact-copy">
+            <p class="eyebrow">Contact</p>
+            <h2>Let's Build Better Certificate Workflows</h2>
+            <p>AD Studio was made to turn repetitive certificate generation into something faster, more flexible, and completely yours.</p>
+            <div class="contact-list">
+              <a href="https://www.linkedin.com/in/aaditya-devadiga-0ba539329/" target="_blank" rel="noreferrer">LinkedIn : aaditya-devadiga-0ba539329</a>
+              <a href="https://github.com/SkaaBroach853" target="_blank" rel="noreferrer">GitHub : SkaaBroach853</a>
+              <p>Contact : 9892971804</p>
+              <p>Email : internaadibro@gmail.com</p>
+            </div>
+            <small>AD &copy; 2026</small>
+          </div>
+          <div class="footer-corner-fun">
+            <div class="cubes-widget" id="footerCubes" aria-hidden="true"></div>
+          </div>
+        </div>
+      </div>
+    </footer>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <script src="{{ url_for('static', filename='js/site.js') }}?v=20260418a"></script>
+</body>
+</html>

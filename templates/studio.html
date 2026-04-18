@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CertFlow Studio</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/studio.css') }}?v=20260418a" />
+</head>
+<body data-theme="dark">
+  <header class="topbar fade-up">
+    <div class="topbar-title">
+      <h1>CertFlow Studio</h1>
+      <p>Bulk digital certificate generation and secure email distribution</p>
+    </div>
+    <div class="topbar-actions">
+      <a class="topbar-link" href="/showcase">AD Showcase</a>
+      <a class="topbar-link" href="/admin">Admin</a>
+      <button id="themeToggleBtn" class="topbar-btn" type="button">Light Mode</button>
+      <button id="sidebarToggleBtn" class="topbar-btn" type="button">Collapse Sidebar</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside id="controlsPanel" class="panel controls slide-in-left">
+      <div class="controls-header">
+        <h2>Control Panel</h2>
+        <p>Structured editing workflow like a task pane.</p>
+      </div>
+
+      <div class="sidebar-shell">
+        <nav class="sidebar-rail" aria-label="Control sections">
+          <button class="rail-btn active" type="button" data-panel="setup" title="Setup">Setup</button>
+          <button class="rail-btn" type="button" data-panel="designer" title="Designer">Design</button>
+          <button class="rail-btn" type="button" data-panel="output" title="Output">Output</button>
+          <button class="rail-btn" type="button" data-panel="email" title="Email">Email</button>
+        </nav>
+
+        <div class="sidebar-scroll">
+          <section id="panel-setup" class="control-group panel-section active">
+            <div class="group-title-row">
+              <h3>1. Setup Files</h3>
+            </div>
+
+            <label class="field-label" for="templateInput">Certificate Template (PNG/JPG)</label>
+            <input id="templateInput" type="file" accept=".png,.jpg,.jpeg" />
+            <button id="uploadTemplateBtn" class="btn primary">Upload Template</button>
+
+            <label class="field-label" for="csvInput">Recipient CSV</label>
+            <input id="csvInput" type="file" accept=".csv" />
+            <button id="uploadCsvBtn" class="btn">Upload CSV</button>
+
+            <div id="uploadStatus" class="status"></div>
+          </section>
+
+          <section id="panel-designer" class="control-group panel-section">
+            <div class="group-title-row">
+              <h3>2. Text Designer</h3>
+            </div>
+
+            <div class="row-actions">
+              <button id="addTextBoxBtn" class="btn">Add Text Box</button>
+              <button id="removeTextBoxBtn" class="btn danger">Remove Selected</button>
+            </div>
+
+            <label class="field-label" for="boxContent">Text Content</label>
+            <textarea id="boxContent" rows="3" placeholder="Example: Certificate awarded to {Name}"></textarea>
+
+            <div class="grid-2">
+              <div>
+                <label class="field-label" for="boxFontFamily">Font</label>
+                <select id="boxFontFamily">
+                  <option>Arial</option>
+                  <option>Calibri</option>
+                  <option>Times New Roman</option>
+                  <option>Georgia</option>
+                  <option>Verdana</option>
+                  <option>Trebuchet MS</option>
+                </select>
+              </div>
+              <div>
+                <label class="field-label" for="boxFontSize">Font Size</label>
+                <input id="boxFontSize" type="number" min="10" max="180" value="36" />
+              </div>
+            </div>
+
+            <div class="grid-2">
+              <div>
+                <label class="field-label" for="boxAlign">Text Alignment</label>
+                <select id="boxAlign">
+                  <option value="center">Center</option>
+                  <option value="left">Left</option>
+                  <option value="right">Right</option>
+                </select>
+              </div>
+              <div></div>
+            </div>
+
+            <div class="grid-2 align-end">
+              <div>
+                <label class="field-label" for="boxColor">Color</label>
+                <input id="boxColor" type="color" value="#000000" />
+                <div id="basicColorPalette" class="color-palette" aria-label="Basic color palette"></div>
+              </div>
+              <div class="inline-checks">
+                <label><input id="boxBold" type="checkbox" /> Bold</label>
+                <label><input id="boxItalic" type="checkbox" /> Italic</label>
+              </div>
+            </div>
+          </section>
+
+          <section id="panel-output" class="control-group panel-section">
+            <div class="group-title-row">
+              <h3>3. Generate Output</h3>
+            </div>
+
+            <label class="field-label" for="outputFormat">Output Format</label>
+            <select id="outputFormat">
+              <option value="png">PNG</option>
+              <option value="pdf">PDF</option>
+            </select>
+
+            <label class="field-label" for="fileNameTemplate">Filename Template</label>
+            <input id="fileNameTemplate" type="text" value="{Name}_{CertificateID}" />
+            <p class="inline-help">Use placeholders like {Name}, {Email}, {Course}, {Date}, {CertificateID}. Invalid file characters are cleaned automatically.</p>
+            <div id="fileNamePreview" class="preview-chip">Preview filename: -</div>
+
+            <label class="field-label check-label"><input id="qrEnabled" type="checkbox" /> Enable QR code</label>
+
+            <label class="field-label" for="qrData">QR Data Template</label>
+            <input id="qrData" type="text" value="https://verify.example.com/{CertificateID}" />
+
+            <div class="grid-3">
+              <div>
+                <label class="field-label" for="qrX">QR X</label>
+                <input id="qrX" type="number" value="980" />
+              </div>
+              <div>
+                <label class="field-label" for="qrY">QR Y</label>
+                <input id="qrY" type="number" value="620" />
+              </div>
+              <div>
+                <label class="field-label" for="qrSize">QR Size</label>
+                <input id="qrSize" type="number" value="120" />
+              </div>
+            </div>
+
+            <div class="actions">
+              <button id="previewBtn" class="btn primary">Preview</button>
+              <button id="generateBtn" class="btn primary">Generate</button>
+            </div>
+
+            <div class="grid-2">
+              <div>
+                <label class="field-label" for="singleRowNumber">Single Row Number</label>
+                <input id="singleRowNumber" type="number" min="1" value="1" />
+              </div>
+              <div class="align-end">
+                <button id="generateSingleBtn" class="btn">Generate One</button>
+              </div>
+            </div>
+
+            <a id="downloadZipLink" class="btn hidden" href="#" download>Download ZIP</a>
+            <a id="downloadSingleLink" class="btn hidden" href="#" download>Download Single Certificate</a>
+          </section>
+
+          <section id="panel-email" class="control-group panel-section">
+            <div class="group-title-row">
+              <h3>4. Email Distribution</h3>
+            </div>
+
+            <div class="email-help">
+              <h4>How to send emails</h4>
+              <ol>
+                <li>Generate certificates first using the <strong>Generate</strong> button.</li>
+                <li>Use sender email and app password (for Gmail, create a 16-character App Password).</li>
+                <li>Keep security as TLS unless your SMTP provider says otherwise.</li>
+                <li>Click <strong>Send Emails</strong> to deliver one certificate per CSV row email.</li>
+              </ol>
+            </div>
+
+            <div class="grid-2">
+              <div>
+                <label class="field-label" for="smtpHost">SMTP Host</label>
+                <input id="smtpHost" type="text" value="smtp.gmail.com" />
+              </div>
+              <div>
+                <label class="field-label" for="smtpPort">SMTP Port</label>
+                <input id="smtpPort" type="number" value="587" />
+              </div>
+            </div>
+
+            <div class="grid-2">
+              <div>
+                <label class="field-label" for="smtpSecurity">SMTP Security</label>
+                <select id="smtpSecurity">
+                  <option value="tls">TLS (Recommended)</option>
+                  <option value="ssl">SSL</option>
+                  <option value="none">None</option>
+                </select>
+              </div>
+              <div>
+                <label class="field-label" for="senderName">Sender Name</label>
+                <input id="senderName" type="text" value="Certificate Team" />
+              </div>
+            </div>
+
+            <label class="field-label" for="gmailUser">Sender Email</label>
+            <input id="gmailUser" type="email" placeholder="you@gmail.com" />
+
+            <label class="field-label" for="gmailPassword">Email Password / App Password</label>
+            <input id="gmailPassword" type="password" placeholder="Enter your SMTP/app password" />
+
+            <label class="field-label" for="emailSubject">Subject</label>
+            <input id="emailSubject" type="text" value="Your Certificate" />
+
+            <label class="field-label" for="emailBody">Body Template</label>
+            <textarea id="emailBody" rows="5">Hello {Name},
+
+Congratulations on completing {Course}. Your certificate is attached.
+Certificate ID: {CertificateID}
+
+Best regards</textarea>
+
+            <div class="actions">
+              <button id="testSmtpBtn" class="btn">Test SMTP Connection</button>
+              <button id="sendEmailBtn" class="btn primary">Send Emails</button>
+            </div>
+            <div id="smtpStatus" class="status"></div>
+            <div id="actionStatus" class="status"></div>
+          </section>
+        </div>
+      </div>
+    </aside>
+
+    <section class="panel workspace slide-in-right">
+      <div class="workspace-header">
+        <h2>Certificate Canvas</h2>
+        <p class="hint">Drag text boxes freely, resize from bottom-right corner, and use placeholders like {Name}, {Course}, {Date}, {CertificateID}</p>
+      </div>
+
+      <div id="canvasWrap" class="canvas-wrap">
+        <img id="templateImage" alt="Certificate Template" />
+        <div id="overlay"></div>
+      </div>
+
+      <div id="livePreviewBox" class="live-preview hidden">
+        <h3>Generated Preview</h3>
+        <img id="previewImage" alt="Generated Preview" />
+      </div>
+
+      <div id="csvMeta" class="csv-meta"></div>
+    </section>
+  </main>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=20260418a"></script>
+</body>
+</html>

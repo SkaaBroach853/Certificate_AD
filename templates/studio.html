@@ -9,14 +9,14 @@
 <body data-theme="dark">
   <header class="topbar fade-up">
     <div class="topbar-title">
-      <h1>CertFlow Studio</h1>
-      <p>Bulk digital certificate generation and secure email distribution</p>
+<h1>AD Studio</h1>
+      <p>Bulk digital certificate generation with stateless downloads and user-managed email sending</p>
     </div>
     <div class="topbar-actions">
-      <a class="topbar-link" href="/showcase">AD Showcase</a>
-      <a class="topbar-link" href="/admin">Admin</a>
+      <a class="topbar-link" href="/showcase">Home</a>
+      <button id="helpBtn" class="topbar-btn" type="button">Help</button>
       <button id="themeToggleBtn" class="topbar-btn" type="button">Light Mode</button>
-      <button id="sidebarToggleBtn" class="topbar-btn" type="button">Collapse Sidebar</button>
+<!-- Sidebar toggle removed -->
     </div>
   </header>
 
@@ -29,6 +29,7 @@
 
       <div class="sidebar-shell">
         <nav class="sidebar-rail" aria-label="Control sections">
+          <button id="sidebarRailToggle" class="rail-btn rail-icon-btn" type="button" title="Toggle sidebar" aria-label="Toggle sidebar">&#9776;</button>
           <button class="rail-btn active" type="button" data-panel="setup" title="Setup">Setup</button>
           <button class="rail-btn" type="button" data-panel="designer" title="Designer">Design</button>
           <button class="rail-btn" type="button" data-panel="output" title="Output">Output</button>
@@ -49,7 +50,12 @@
             <input id="csvInput" type="file" accept=".csv" />
             <button id="uploadCsvBtn" class="btn">Upload CSV</button>
 
-            <div id="uploadStatus" class="status"></div>
+            <label class="field-label" for="csvOrTextarea">OR Paste CSV Text (header&#10;name,email,course...)</label>
+            <textarea id="csvOrTextarea" rows="4" placeholder="Name,Email,Course&#10;John Doe,john@example.com,Python&#10;Jane Smith,jane@example.com,JavaScript"></textarea>
+            <button id="usePastedCsvBtn" class="btn">Use Pasted Data</button>
+
+            <div id="uploadStatus" class="status">Files/text checked for current session only. Not stored permanently.</div>
+            <div id="csvDynamicFields" class="dynamic-fields"></div>
           </section>
 
           <section id="panel-designer" class="control-group panel-section">
@@ -122,6 +128,7 @@
             <label class="field-label" for="fileNameTemplate">Filename Template</label>
             <input id="fileNameTemplate" type="text" value="{Name}_{CertificateID}" />
             <p class="inline-help">Use placeholders like {Name}, {Email}, {Course}, {Date}, {CertificateID}. Invalid file characters are cleaned automatically.</p>
+            <p class="inline-help">Before generating, make sure the text box placeholder matches your CSV heading exactly. Example: if your CSV header is <code>Names</code>, use <code>{Names}</code> in the text box.</p>
             <div id="fileNamePreview" class="preview-chip">Preview filename: -</div>
 
             <label class="field-label check-label"><input id="qrEnabled" type="checkbox" /> Enable QR code</label>
@@ -171,10 +178,10 @@
             <div class="email-help">
               <h4>How to send emails</h4>
               <ol>
-                <li>Generate certificates first using the <strong>Generate</strong> button.</li>
-                <li>Use sender email and app password (for Gmail, create a 16-character App Password).</li>
+                <li>Use sender email and app password. For Gmail, create a 16-character App Password.</li>
                 <li>Keep security as TLS unless your SMTP provider says otherwise.</li>
-                <li>Click <strong>Send Emails</strong> to deliver one certificate per CSV row email.</li>
+                <li>Click <strong>Send Emails</strong> and the app will generate each certificate in memory and send it immediately.</li>
+                <li>No certificate batch is stored on the server after sending.</li>
               </ol>
             </div>
 
@@ -193,7 +200,7 @@
               <div>
                 <label class="field-label" for="smtpSecurity">SMTP Security</label>
                 <select id="smtpSecurity">
-                  <option value="tls">TLS (Recommended)</option>
+                  <option value="tls">TLS (Adviced)</option>
                   <option value="ssl">SSL</option>
                   <option value="none">None</option>
                 </select>
@@ -209,6 +216,7 @@
 
             <label class="field-label" for="gmailPassword">Email Password / App Password</label>
             <input id="gmailPassword" type="password" placeholder="Enter your SMTP/app password" />
+            <p class="inline-help">Used only for the current SMTP test or send action. The app does not store this password after the request finishes.</p>
 
             <label class="field-label" for="emailSubject">Subject</label>
             <input id="emailSubject" type="text" value="Your Certificate" />
@@ -222,7 +230,8 @@ Certificate ID: {CertificateID}
 Best regards</textarea>
 
             <div class="actions">
-              <button id="testSmtpBtn" class="btn">Test SMTP Connection</button>
+              <button id="emailPreviewBtn" class="btn" style="background: var(--surface-soft);">Preview Email</button>
+              <button id="testSmtpBtn" class="btn">Test SMTP</button>
               <button id="sendEmailBtn" class="btn primary">Send Emails</button>
             </div>
             <div id="smtpStatus" class="status"></div>
@@ -251,6 +260,95 @@ Best regards</textarea>
       <div id="csvMeta" class="csv-meta"></div>
     </section>
   </main>
+
+  <div id="helpModal" class="help-modal hidden" aria-hidden="true">
+    <div id="helpModalBackdrop" class="help-backdrop"></div>
+    <div class="help-dialog" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+      <div class="help-dialog-head">
+        <div>
+          <h2 id="helpTitle">CertFlow Studio Help</h2>
+          <p>Full guide from basic setup to sending emails.</p>
+        </div>
+        <button id="helpCloseBtn" class="help-close-btn" type="button" aria-label="Close help">×</button>
+      </div>
+
+      <div class="help-dialog-body">
+        <section class="help-block">
+          <h3>1. Overview</h3>
+          <p>This tool helps you create certificates in bulk. You upload a template, load recipient data, place text boxes, preview the result, generate downloads, and optionally send the certificates by email.</p>
+        </section>
+
+        <section class="help-block">
+          <h3>2. Setup Files</h3>
+          <p><strong>Template:</strong> Upload a PNG or JPG certificate background.</p>
+          <p><strong>Recipient data:</strong> Upload a CSV file or paste CSV text and click <strong>Use Pasted Data</strong>.</p>
+          <p><strong>Example CSV:</strong></p>
+          <pre class="help-code">Name,Email,Course,Date
+John Doe,john@example.com,Python,19 Apr 2026
+Jane Smith,jane@example.com,Design,19 Apr 2026</pre>
+        </section>
+
+        <section class="help-block">
+          <h3>3. Design Section</h3>
+          <p>Click <strong>Add Text Box</strong> to place a new text layer on the certificate.</p>
+          <p>You can drag each box anywhere and resize it from the bottom-right corner.</p>
+          <p><strong>Example lines:</strong></p>
+          <pre class="help-code">Certificate of Completion
+Awarded to {Name}
+For successfully completing {Course}</pre>
+          <p>Use placeholders from your CSV, such as <code>{Name}</code>, <code>{Email}</code>, <code>{Course}</code>, <code>{Date}</code>, and <code>{CertificateID}</code>.</p>
+        </section>
+
+        <section class="help-block">
+          <h3>4. Output Section</h3>
+          <p>Choose PNG or PDF output. Set the filename template if you want custom names.</p>
+          <p><strong>Example filename template:</strong></p>
+          <pre class="help-code">{Name}_{CertificateID}</pre>
+          <p>You can also enable QR codes and control their position and size.</p>
+          <ol>
+            <li><strong>Preview:</strong> Generates one sample certificate.</li>
+            <li><strong>Generate:</strong> Creates all certificates as a ZIP.</li>
+            <li><strong>Generate One:</strong> Creates one certificate for the selected row number.</li>
+          </ol>
+        </section>
+
+        <section class="help-block">
+          <h3>5. Email Section</h3>
+          <p>Use this when you want the app to send certificates directly to recipients.</p>
+          <p><strong>Usually required:</strong> SMTP host, SMTP port, SMTP security, sender email, sender password or app password, subject, and body.</p>
+          <p><strong>Gmail example:</strong></p>
+          <pre class="help-code">SMTP Host: smtp.gmail.com
+SMTP Port: 587
+SMTP Security: TLS
+Sender Email: yourname@gmail.com
+Password: Google App Password</pre>
+          <ol>
+            <li><strong>Email Preview:</strong> Shows how the email will look.</li>
+            <li><strong>Test SMTP:</strong> Checks whether login and SMTP settings work.</li>
+            <li><strong>Send Emails:</strong> Generates certificates and emails all rows from the CSV.</li>
+          </ol>
+        </section>
+
+        <section class="help-block">
+          <h3>6. Recommended Workflow</h3>
+          <ol>
+            <li>Upload the certificate template.</li>
+            <li>Upload or paste the CSV data.</li>
+            <li>Add and style text boxes.</li>
+            <li>Preview a sample.</li>
+            <li>Generate all certificates or send them by email.</li>
+          </ol>
+        </section>
+
+        <section class="help-block">
+          <h3>7. Common Issues</h3>
+          <p><strong>No CSV data loaded:</strong> Make sure the pasted or uploaded CSV has a header row and at least one data row.</p>
+          <p><strong>Preview failed:</strong> Usually means template, CSV, or text box data is missing.</p>
+          <p><strong>Email failed:</strong> Usually means wrong SMTP settings, wrong password, or missing email values in the CSV.</p>
+        </section>
+      </div>
+    </div>
+  </div>
 
   <script src="{{ url_for('static', filename='js/app.js') }}?v=20260418a"></script>
 </body>

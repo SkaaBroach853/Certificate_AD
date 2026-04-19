@@ -2,9 +2,9 @@
 // App state
 // -----------------------------
 const state = {
-  templatePath: "",
-  csvPath: "",
-  batchId: "",
+  templateFile: null,
+  templateObjectUrl: "",
+  csvFile: null,
   csvRows: 0,
   textBoxes: [],
   selectedBoxId: null,
@@ -16,12 +16,17 @@ const state = {
 const templateInput = document.getElementById("templateInput");
 const csvInput = document.getElementById("csvInput");
 const controlsPanel = document.getElementById("controlsPanel");
-const sidebarToggleBtn = document.getElementById("sidebarToggleBtn");
+const sidebarRailToggle = document.getElementById("sidebarRailToggle");
 const themeToggleBtn = document.getElementById("themeToggleBtn");
+const helpBtn = document.getElementById("helpBtn");
+const helpModal = document.getElementById("helpModal");
+const helpModalBackdrop = document.getElementById("helpModalBackdrop");
+const helpCloseBtn = document.getElementById("helpCloseBtn");
 const railButtons = Array.from(document.querySelectorAll(".rail-btn"));
 const panelSections = Array.from(document.querySelectorAll(".panel-section"));
 const uploadTemplateBtn = document.getElementById("uploadTemplateBtn");
 const uploadCsvBtn = document.getElementById("uploadCsvBtn");
+const usePastedCsvBtn = document.getElementById("usePastedCsvBtn");
 const addTextBoxBtn = document.getElementById("addTextBoxBtn");
 const removeTextBoxBtn = document.getElementById("removeTextBoxBtn");
 const previewBtn = document.getElementById("previewBtn");
@@ -72,6 +77,7 @@ const gmailUser = document.getElementById("gmailUser");
 const gmailPassword = document.getElementById("gmailPassword");
 const emailSubject = document.getElementById("emailSubject");
 const emailBody = document.getElementById("emailBody");
+const emailPreviewBtn = document.getElementById("emailPreviewBtn");
 
 function setActiveSidebarPanel(panelName) {
   railButtons.forEach((btn) => {
@@ -92,13 +98,20 @@ function setTheme(theme) {
   localStorage.setItem("certflow_theme", resolved);
 }
 
-if (sidebarToggleBtn && controlsPanel) {
-  sidebarToggleBtn.addEventListener("click", () => {
+if (sidebarRailToggle && controlsPanel) {
+  sidebarRailToggle.addEventListener("click", () => {
     controlsPanel.classList.toggle("collapsed");
     const collapsed = controlsPanel.classList.contains("collapsed");
-    sidebarToggleBtn.textContent = collapsed ? "Expand Sidebar" : "Collapse Sidebar";
     localStorage.setItem("certflow_sidebar_collapsed", collapsed ? "1" : "0");
   });
+}
+
+if (controlsPanel) {
+  const observer = new MutationObserver(() => {
+    const collapsed = controlsPanel.classList.contains("collapsed");
+    localStorage.setItem("certflow_sidebar_collapsed", collapsed ? "1" : "0");
+  });
+  observer.observe(controlsPanel, { attributes: true, attributeFilter: ['class'] });
 }
 
 if (themeToggleBtn) {
@@ -108,12 +121,35 @@ if (themeToggleBtn) {
   });
 }
 
+function setHelpModal(open) {
+  if (!helpModal) return;
+  helpModal.classList.toggle("hidden", !open);
+  helpModal.setAttribute("aria-hidden", open ? "false" : "true");
+}
+
+if (helpBtn) {
+  helpBtn.addEventListener("click", () => setHelpModal(true));
+}
+
+if (helpCloseBtn) {
+  helpCloseBtn.addEventListener("click", () => setHelpModal(false));
+}
+
+if (helpModalBackdrop) {
+  helpModalBackdrop.addEventListener("click", () => setHelpModal(false));
+}
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && helpModal && !helpModal.classList.contains("hidden")) {
+    setHelpModal(false);
+  }
+});
+
 railButtons.forEach((btn) => {
   btn.addEventListener("click", () => {
     if (!btn.dataset.panel) return;
     if (controlsPanel?.classList.contains("collapsed")) {
       controlsPanel.classList.remove("collapsed");
-      if (sidebarToggleBtn) sidebarToggleBtn.textContent = "Collapse Sidebar";
       localStorage.setItem("certflow_sidebar_collapsed", "0");
     }
     setActiveSidebarPanel(btn.dataset.panel);
@@ -128,7 +164,6 @@ setActiveSidebarPanel(persistedPanel);
 
 if (controlsPanel && localStorage.getItem("certflow_sidebar_collapsed") === "1") {
   controlsPanel.classList.add("collapsed");
-  if (sidebarToggleBtn) sidebarToggleBtn.textContent = "Expand Sidebar";
 }
 
 
@@ -165,68 +200,265 @@ async function postJson(url, payload) {
   return data;
 }
 
+async function postFormForBlob(url, formData) {
+  const res = await fetch(url, { method: "POST", body: formData });
+  if (!res.ok) {
+    const raw = await res.text();
+    let data = {};
+    try {
+      data = raw ? JSON.parse(raw) : {};
+    } catch {
+      data = {};
+    }
+    throw new Error(data.error || raw || "Request failed");
+  }
+  return {
+    blob: await res.blob(),
+    headers: res.headers,
+  };
+}
+
+function clearObjectUrl(currentUrl) {
+  if (currentUrl) {
+    URL.revokeObjectURL(currentUrl);
+  }
+}
+
+function clearDownloadLink(link) {
+  if (!link) return;
+  const current = link.dataset.objectUrl;
+  if (current) {
+    URL.revokeObjectURL(current);
+  }
+  link.dataset.objectUrl = "";
+  link.href = "#";
+  link.classList.add("hidden");
+}
+
+function getFilenameFromHeaders(headers, fallback) {
+  const disposition = headers.get("Content-Disposition") || "";
+  const starMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (starMatch) return decodeURIComponent(starMatch[1]);
+  const plainMatch = disposition.match(/filename="?([^";]+)"?/i);
+  if (plainMatch) return plainMatch[1];
+  return fallback;
+}
+
+function attachBlobToLink(link, blob, filename) {
+  clearDownloadLink(link);
+  const objectUrl = URL.createObjectURL(blob);
+  link.dataset.objectUrl = objectUrl;
+  link.href = objectUrl;
+  link.download = filename;
+  link.classList.remove("hidden");
+}
+
+function buildGeneratorFormData() {
+  const formData = new FormData();
+  formData.append("template", state.templateFile);
+  formData.append("csv", state.csvFile);
+  return formData;
+}
+
+function createCsvFileFromText(csvText) {
+  return new File([csvText], "pasted-data.csv", { type: "text/csv" });
+}
+
+async function processCsvInput(file, sourceLabel = "CSV") {
+  if (!file) {
+    throw new Error("No CSV data provided.");
+  }
+
+  const formData = new FormData();
+  formData.append("csv", file, file.name || "data.csv");
+  const data = await postForm("/upload-csv", formData);
+
+  state.csvFile = file;
+  state.csvRows = Number(data.rows || 0);
+  clearDownloadLink(downloadZipLink);
+  clearDownloadLink(downloadSingleLink);
+
+  csvMeta.innerHTML = `
+    Rows: <strong>${data.rows}</strong><br>
+    Columns: <strong>${data.fieldnames.join(", ")}</strong>
+  `;
+
+  const dynamicFields = document.getElementById("csvDynamicFields");
+  dynamicFields.innerHTML = "";
+  if (data.sample) {
+    data.fieldnames.forEach((key) => {
+      const value = data.sample[key] ?? "";
+      const row = document.createElement("div");
+      row.className = "dynamic-field-row";
+      row.innerHTML = `
+        <div class="dynamic-field-label">${key}:</div>
+        <input class="dynamic-field-input" value="${value}" readonly />
+      `;
+      dynamicFields.appendChild(row);
+    });
+  }
+
+  uploadStatus.textContent = `${sourceLabel} ready.`;
+  await refreshFileNamePreview();
+}
+
 
 // -----------------------------
 // Upload handlers
 // -----------------------------
+function createProgressController(btnId, options = {}) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return null;
+
+  const {
+    estimatedMs = 2500,
+    maxAutoProgress = 88,
+    label = "Working...",
+  } = options;
+
+  const existing = btn.parentNode.querySelector(".progress-container");
+  if (existing) existing.remove();
+
+  const container = btn.parentNode.insertBefore(document.createElement("div"), btn.nextSibling);
+  container.className = "progress-container";
+  container.innerHTML = `
+    <div class="progress-bar"><div class="progress-fill"></div></div>
+    <div class="progress-label"></div>
+  `;
+  btn.disabled = true;
+  const fill = container.querySelector(".progress-fill");
+  const labelNode = container.querySelector(".progress-label");
+  labelNode.textContent = label;
+
+  let progress = 0;
+  const tickMs = 120;
+  const totalTicks = Math.max(8, Math.floor(estimatedMs / tickMs));
+  const autoStep = maxAutoProgress / totalTicks;
+  const interval = setInterval(() => {
+    progress = Math.min(maxAutoProgress, progress + autoStep);
+    fill.style.width = `${progress}%`;
+    if (progress >= maxAutoProgress) {
+      clearInterval(interval);
+    }
+  }, tickMs);
+
+  const cleanup = (finalProgress, finalLabel, removeDelay = 500) => {
+    clearInterval(interval);
+    progress = finalProgress;
+    fill.style.width = `${finalProgress}%`;
+    if (finalLabel) labelNode.textContent = finalLabel;
+    window.setTimeout(() => {
+      if (container.parentNode) container.remove();
+      btn.disabled = false;
+    }, removeDelay);
+  };
+
+  return {
+    setProgress(nextProgress) {
+      progress = Math.max(progress, Math.min(100, nextProgress));
+      fill.style.width = `${progress}%`;
+    },
+    setLabel(nextLabel) {
+      if (nextLabel) labelNode.textContent = nextLabel;
+    },
+    complete(nextLabel = "Done") {
+      cleanup(100, nextLabel, 400);
+    },
+    fail(nextLabel = "Failed") {
+      container.classList.add("progress-error");
+      cleanup(Math.max(progress, 100), nextLabel, 1200);
+    },
+  };
+}
+
 uploadTemplateBtn.addEventListener("click", async () => {
+  const progress = createProgressController("uploadTemplateBtn", {
+    estimatedMs: 1800,
+    label: "Validating template...",
+  });
   const file = templateInput.files[0];
   if (!file) {
+    progress?.fail("Select template first");
     uploadStatus.textContent = "Select a template image first.";
     return;
   }
 
   try {
-    uploadStatus.textContent = "Uploading template...";
+    uploadStatus.textContent = "Checking template...";
     const formData = new FormData();
     formData.append("template", file);
 
     const data = await postForm("/upload-template", formData);
-    state.templatePath = data.template_path;
+    state.templateFile = file;
+    clearObjectUrl(state.templateObjectUrl);
+    state.templateObjectUrl = URL.createObjectURL(file);
+    clearDownloadLink(downloadZipLink);
+    clearDownloadLink(downloadSingleLink);
 
     templateImage.onload = () => {
       overlay.style.width = `${templateImage.clientWidth}px`;
       overlay.style.height = `${templateImage.clientHeight}px`;
     };
-    templateImage.src = `${data.template_url}?t=${Date.now()}`;
+    templateImage.src = state.templateObjectUrl;
     templateImage.style.display = "block";
     if (templateImage.complete) {
       templateImage.onload();
     }
 
-    uploadStatus.textContent = `Template uploaded: ${data.width}x${data.height}`;
+    uploadStatus.textContent = `Template ready: ${data.width}x${data.height}. Nothing stored on server.`;
+    progress?.complete("Template ready");
   } catch (error) {
     uploadStatus.textContent = error.message;
+    progress?.fail(error.message);
   }
 });
 
 uploadCsvBtn.addEventListener("click", async () => {
+  const progress = createProgressController("uploadCsvBtn", {
+    estimatedMs: 2200,
+    label: "Reading CSV...",
+  });
   const file = csvInput.files[0];
   if (!file) {
-    uploadStatus.textContent = "Select a CSV file first.";
+    progress?.fail("Select CSV first");
+    uploadStatus.textContent = "Select a CSV file first or use pasted data below.";
     return;
   }
 
   try {
-    uploadStatus.textContent = "Uploading CSV...";
-    const formData = new FormData();
-    formData.append("csv", file);
-
-    const data = await postForm("/upload-csv", formData);
-    state.csvPath = data.csv_path;
-    state.csvRows = Number(data.rows || 0);
-
-    csvMeta.innerHTML = `
-      Rows: <strong>${data.rows}</strong><br>
-      Columns: <strong>${data.fieldnames.join(", ")}</strong>
-    `;
-
-    uploadStatus.textContent = "CSV uploaded successfully.";
-    refreshFileNamePreview();
+    uploadStatus.textContent = "Processing CSV file...";
+    await processCsvInput(file, "CSV uploaded");
+    progress?.complete("CSV uploaded");
   } catch (error) {
     uploadStatus.textContent = error.message;
+    progress?.fail(error.message);
   }
 });
+
+if (usePastedCsvBtn) {
+  usePastedCsvBtn.addEventListener("click", async () => {
+    const progress = createProgressController("usePastedCsvBtn", {
+      estimatedMs: 2200,
+      label: "Loading pasted data...",
+    });
+    const csvText = document.getElementById("csvOrTextarea").value.trim();
+    if (!csvText) {
+      progress?.fail("Paste CSV first");
+      uploadStatus.textContent = "Paste CSV text first.";
+      return;
+    }
+
+    try {
+      uploadStatus.textContent = "Processing pasted data...";
+      const csvFile = createCsvFileFromText(csvText);
+      await processCsvInput(csvFile, "Pasted CSV loaded");
+      progress?.complete("Pasted data ready");
+    } catch (error) {
+      uploadStatus.textContent = error.message;
+      progress?.fail(error.message);
+    }
+  });
+}
 
 
 // -----------------------------
@@ -519,19 +751,19 @@ function getQrPayload() {
 
 async function refreshFileNamePreview() {
   if (!fileNamePreview) return;
-  if (!state.csvPath) {
+  if (!state.csvFile) {
     fileNamePreview.textContent = "Preview filename: Upload CSV to preview.";
     return;
   }
 
   try {
     const rowIndex = Number(singleRowNumber.value || 1);
-    const data = await postJson("/preview-filename", {
-      csv_path: state.csvPath,
-      filename_template: fileNameTemplate.value,
-      row_index: rowIndex,
-      output_format: outputFormat.value,
-    });
+    const formData = new FormData();
+    formData.append("csv", state.csvFile);
+    formData.append("filename_template", fileNameTemplate.value);
+    formData.append("row_index", String(rowIndex));
+    formData.append("output_format", outputFormat.value);
+    const data = await postForm("/preview-filename", formData);
     fileNamePreview.textContent = `Preview filename: ${data.preview_file_name}`;
   } catch (error) {
     fileNamePreview.textContent = `Preview filename: ${error.message}`;
@@ -539,8 +771,8 @@ async function refreshFileNamePreview() {
 }
 
 function validateCoreInputs() {
-  if (!state.templatePath) throw new Error("Upload a certificate template first.");
-  if (!state.csvPath) throw new Error("Upload a CSV file first.");
+  if (!state.templateFile) throw new Error("Upload a certificate template first.");
+  if (!state.csvFile) throw new Error("Upload a CSV file first.");
   if (state.textBoxes.length === 0) throw new Error("Add at least one text box before generating.");
 }
 
@@ -549,73 +781,95 @@ function validateCoreInputs() {
 // Preview + generate actions
 // -----------------------------
 previewBtn.addEventListener("click", async () => {
+  const progress = createProgressController("previewBtn", {
+    estimatedMs: 2400,
+    label: "Rendering preview...",
+  });
   try {
     validateCoreInputs();
     actionStatus.textContent = "Generating preview...";
 
-    const data = await postJson("/preview", {
-      template_path: state.templatePath,
-      csv_path: state.csvPath,
-      text_boxes: state.textBoxes,
-      qr: getQrPayload(),
-    });
+    const formData = buildGeneratorFormData();
+    formData.append("text_boxes", JSON.stringify(state.textBoxes));
+    formData.append("qr", JSON.stringify(getQrPayload()));
 
-    previewImage.src = `${data.preview_url}?t=${Date.now()}`;
+    const data = await postForm("/preview", formData);
+
+    previewImage.src = data.preview_data_url;
     livePreviewBox.classList.remove("hidden");
-    actionStatus.textContent = `Preview generated for ${data.sample_row.Name || "first row"}`;
+    actionStatus.textContent = `Preview generated for ${data.sample_row.Name || "first row"}.`;
+    progress?.complete("Preview ready");
   } catch (error) {
-    actionStatus.textContent = error.message;
+    livePreviewBox.classList.add("hidden");
+    actionStatus.textContent = `Preview failed: ${error.message}`;
+    progress?.fail("Preview failed");
   }
 });
 
 generateBtn.addEventListener("click", async () => {
+  const progress = createProgressController("generateBtn", {
+    estimatedMs: 5000,
+    label: "Generating certificates...",
+  });
   try {
     validateCoreInputs();
     actionStatus.textContent = "Generating all certificates...";
 
-    const data = await postJson("/generate", {
-      template_path: state.templatePath,
-      csv_path: state.csvPath,
-      text_boxes: state.textBoxes,
-      options: {
+    const formData = buildGeneratorFormData();
+    formData.append("text_boxes", JSON.stringify(state.textBoxes));
+    formData.append(
+      "options",
+      JSON.stringify({
         output_format: outputFormat.value,
         filename_template: fileNameTemplate.value,
         qr: getQrPayload(),
-      },
-    });
+      })
+    );
 
-    state.batchId = data.batch_id;
-    downloadZipLink.href = data.zip_download;
-    downloadZipLink.classList.remove("hidden");
+    const { blob, headers } = await postFormForBlob("/generate", formData);
+    const count = Number(headers.get("X-Certificate-Count") || 0);
+    const fileName = getFilenameFromHeaders(headers, "certificates.zip");
+    attachBlobToLink(downloadZipLink, blob, fileName);
 
-    actionStatus.textContent = `${data.count} certificates generated. Ready to download or email.`;
+    actionStatus.textContent = `${count || state.csvRows} certificates generated. ZIP is ready to download. Nothing was stored on the server.`;
+    progress?.complete(`${count || state.csvRows} certificates ready`);
   } catch (error) {
-    actionStatus.textContent = error.message;
+    actionStatus.textContent = `Generate failed: ${error.message}`;
+    progress?.fail("Generate failed");
   }
 });
 
 generateSingleBtn.addEventListener("click", async () => {
+  const progress = createProgressController("generateSingleBtn", {
+    estimatedMs: 2600,
+    label: "Generating single certificate...",
+  });
   try {
     validateCoreInputs();
     actionStatus.textContent = "Generating single certificate...";
 
-    const data = await postJson("/generate-single", {
-      template_path: state.templatePath,
-      csv_path: state.csvPath,
-      text_boxes: state.textBoxes,
-      row_index: Number(singleRowNumber.value || 1),
-      options: {
+    const rowIndex = Number(singleRowNumber.value || 1);
+    const formData = buildGeneratorFormData();
+    formData.append("text_boxes", JSON.stringify(state.textBoxes));
+    formData.append("row_index", String(rowIndex));
+    formData.append(
+      "options",
+      JSON.stringify({
         output_format: outputFormat.value,
         filename_template: fileNameTemplate.value,
         qr: getQrPayload(),
-      },
-    });
+      })
+    );
 
-    downloadSingleLink.href = data.download_url;
-    downloadSingleLink.classList.remove("hidden");
-    actionStatus.textContent = `Single certificate ready for row ${data.row_index} (${data.name || "recipient"}).`;
+    const { blob, headers } = await postFormForBlob("/generate-single", formData);
+    const fileName = getFilenameFromHeaders(headers, `certificate_row_${rowIndex}`);
+    const recipientName = headers.get("X-Recipient-Name") || "recipient";
+    attachBlobToLink(downloadSingleLink, blob, fileName);
+    actionStatus.textContent = `Single certificate ready for row ${rowIndex} (${recipientName}).`;
+    progress?.complete("Single certificate ready");
   } catch (error) {
-    actionStatus.textContent = error.message;
+    actionStatus.textContent = `Single generate failed: ${error.message}`;
+    progress?.fail("Single generate failed");
   }
 });
 
@@ -624,6 +878,10 @@ singleRowNumber.addEventListener("input", refreshFileNamePreview);
 outputFormat.addEventListener("change", refreshFileNamePreview);
 
 testSmtpBtn.addEventListener("click", async () => {
+  const progress = createProgressController("testSmtpBtn", {
+    estimatedMs: 2400,
+    label: "Testing SMTP...",
+  });
   try {
     smtpStatus.textContent = "Testing SMTP connection...";
     const data = await postJson("/test-smtp", {
@@ -634,8 +892,10 @@ testSmtpBtn.addEventListener("click", async () => {
       gmail_app_password: gmailPassword.value,
     });
     smtpStatus.textContent = data.message || "SMTP connection successful.";
+    progress?.complete("SMTP verified");
   } catch (error) {
     smtpStatus.textContent = error.message;
+    progress?.fail("SMTP failed");
   }
 });
 
@@ -643,31 +903,102 @@ testSmtpBtn.addEventListener("click", async () => {
 // -----------------------------
 // Email sending action
 // -----------------------------
+function showEmailPreview() {
+  if (!state.csvRows) {
+    actionStatus.textContent = "Upload CSV first to preview email.";
+    return;
+  }
+  const sender = gmailUser.value || "sender@example.com";
+  const subjectText = emailSubject.value || "Your Certificate";
+  const bodyText = emailBody.value.replace(/\n/g, '<br>');
+  const previewHTML = `
+    <div style="max-width: 600px; font-family: Arial, sans-serif; border: 1px solid #cfd8e3; border-radius: 8px; overflow: hidden; background: #ffffff; color: #1f2937;">
+      <div style="background: #f8fafc; padding: 12px 20px; border-bottom: 1px solid #d9e2ec; color: #334155;">
+        <strong>From:</strong> ${sender}<br>
+        <strong>To:</strong> recipient@example.com<br>
+        <strong>Subject:</strong> ${subjectText}
+      </div>
+      <div style="padding: 20px; line-height: 1.6; background: #ffffff; color: #1f2937;">
+        ${bodyText.replace(/{[^}]+}/g, '<strong style="color: #007bff;">[Dynamic Value]</strong>')}
+      </div>
+      <div style="background: #f8fafc; padding: 12px 20px; border-top: 1px solid #d9e2ec; color: #475569; font-size: 0.9em;">
+        Attached: certificate.png [Certificate ID: CERT-YYYYMMDD-001-ABC123]
+      </div>
+    </div>
+  `;
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px;';
+  modal.innerHTML = `
+    <div style="background: var(--surface, #ffffff); color: var(--text, #eaf2ff); border: 1px solid var(--line, rgba(159, 191, 240, 0.28)); border-radius: 12px; padding: 24px; max-width: 90vw; max-height: 90vh; overflow: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; color: var(--text, #eaf2ff);">
+        <h3 style="margin: 0; color: var(--text, #eaf2ff);">Email Preview</h3>
+        <button onclick="this.parentElement.parentElement.parentElement.remove()" style="background: none; border: none; color: var(--text, #eaf2ff); font-size: 1.5rem; cursor: pointer;">×</button>
+      </div>
+      <div id="emailPreviewContent">${previewHTML}</div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+if (emailPreviewBtn) {
+  emailPreviewBtn.addEventListener("click", showEmailPreview);
+}
+
 sendEmailBtn.addEventListener("click", async () => {
+  const totalRecipients = Math.max(state.csvRows || 0, 1);
+  const progress = createProgressController("sendEmailBtn", {
+    estimatedMs: Math.max(5000, totalRecipients * 900),
+    maxAutoProgress: 94,
+    label: `Preparing 0 of ${totalRecipients} emails...`,
+  });
+  let simulatedSent = 0;
+  const perStepMs = Math.max(700, Math.min(1600, Math.round(9000 / totalRecipients)));
+  const liveTicker = window.setInterval(() => {
+    if (simulatedSent >= Math.max(totalRecipients - 1, 0)) return;
+    simulatedSent += 1;
+    const ratio = totalRecipients > 0 ? simulatedSent / totalRecipients : 0;
+    progress?.setProgress(8 + ratio * 84);
+    progress?.setLabel(`Sending ${simulatedSent} of ${totalRecipients} emails...`);
+    actionStatus.textContent = `Sending emails... ${simulatedSent} of ${totalRecipients} processed.`;
+  }, perStepMs);
   try {
-    if (!state.batchId) throw new Error("Generate certificates before sending emails.");
+    validateCoreInputs();
+    actionStatus.textContent = "Generating certificates and sending emails...";
 
-    actionStatus.textContent = "Sending emails...";
+    const formData = buildGeneratorFormData();
+    formData.append("text_boxes", JSON.stringify(state.textBoxes));
+    formData.append(
+      "options",
+      JSON.stringify({
+        output_format: outputFormat.value,
+        filename_template: fileNameTemplate.value,
+        qr: getQrPayload(),
+      })
+    );
+    formData.append("smtp_host", smtpHost.value || "smtp.gmail.com");
+    formData.append("smtp_port", String(Number(smtpPort.value || 587)));
+    formData.append("smtp_security", smtpSecurity.value || "tls");
+    formData.append("sender_name", senderName.value || "");
+    formData.append("gmail_user", gmailUser.value);
+    formData.append("gmail_app_password", gmailPassword.value);
+    formData.append("subject", emailSubject.value || "Your Certificate");
+    formData.append("body", emailBody.value);
 
-    const data = await postJson("/send-email", {
-      batch_id: state.batchId,
-      smtp_host: smtpHost.value || "smtp.gmail.com",
-      smtp_port: Number(smtpPort.value || 587),
-      smtp_security: smtpSecurity.value || "tls",
-      sender_name: senderName.value || "",
-      gmail_user: gmailUser.value,
-      gmail_app_password: gmailPassword.value,
-      subject: emailSubject.value || "Your Certificate",
-      body: emailBody.value,
-    });
+    const data = await postForm("/send-email", formData);
+    window.clearInterval(liveTicker);
+    progress?.setProgress(100);
+    progress?.setLabel(`Sent ${data.sent} of ${data.total} emails`);
 
     if (data.failed.length > 0) {
-      actionStatus.textContent = `Sent ${data.sent}/${data.total}. Failed: ${data.failed.length}.`;
+      actionStatus.textContent = `Sent ${data.sent}/${data.total}. Failed: ${data.failed.length}. No files were stored on the server.`;
     } else {
-      actionStatus.textContent = `All ${data.sent} emails sent successfully.`;
+      actionStatus.textContent = `All ${data.sent} emails sent successfully. No files were stored on the server.`;
     }
+    progress?.complete(`Sent ${data.sent}/${data.total} emails`);
   } catch (error) {
+    window.clearInterval(liveTicker);
     actionStatus.textContent = error.message;
+    progress?.fail("Email sending failed");
   }
 });
 

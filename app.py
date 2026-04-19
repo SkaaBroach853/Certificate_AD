@@ -1,4 +1,5 @@
-﻿import csv
+import base64
+import csv
 import io
 import json
 import mimetypes
@@ -130,6 +131,32 @@ def parse_csv_file(csv_path: Path):
                 if canonical and canonical not in cleaned:
                     cleaned[canonical] = value
             rows.append(cleaned)
+
+    return rows, normalized_fieldnames
+
+
+def parse_csv_bytes(csv_bytes: bytes):
+    """Read CSV bytes into list of dict rows without writing to disk."""
+    rows = []
+    text = csv_bytes.decode("utf-8-sig", errors="replace")
+    handle = io.StringIO(text, newline="")
+    reader = csv.DictReader(handle)
+    if not reader.fieldnames:
+        return [], []
+
+    raw_fieldnames = [header or "" for header in reader.fieldnames]
+    normalized_fieldnames = [header.strip() for header in raw_fieldnames]
+    header_map = {raw: normalized for raw, normalized in zip(raw_fieldnames, normalized_fieldnames)}
+
+    for row in reader:
+        cleaned = {}
+        for raw_field, normalized in header_map.items():
+            value = (row.get(raw_field, "") or "").strip()
+            cleaned[normalized] = value
+            canonical = canonical_field_name(normalized)
+            if canonical and canonical not in cleaned:
+                cleaned[canonical] = value
+        rows.append(cleaned)
 
     return rows, normalized_fieldnames
 
@@ -299,6 +326,111 @@ def maybe_draw_qr(base_image: Image.Image, row_data: dict, qr_config: dict):
     base_image.paste(qr_img, (x, y))
 
 
+def load_request_files():
+    """Load template and CSV uploads from the current request into memory."""
+    template_file = request.files.get("template")
+    csv_file = request.files.get("csv")
+
+    if not template_file:
+        raise ValueError("No template file provided.")
+    if not csv_file:
+        raise ValueError("No CSV file provided.")
+
+    template_name = template_file.filename or "template.png"
+    template_ext = Path(template_name).suffix.lower()
+    if template_ext not in {".png", ".jpg", ".jpeg"}:
+        raise ValueError("Only PNG/JPG templates are supported.")
+
+    csv_name = csv_file.filename or "data.csv"
+    if Path(csv_name).suffix.lower() != ".csv":
+        raise ValueError("Please upload a .csv file.")
+
+    template_bytes = template_file.read()
+    csv_bytes = csv_file.read()
+    if not template_bytes:
+        raise ValueError("Template file is empty.")
+    if not csv_bytes:
+        raise ValueError("CSV file is empty.")
+
+    return template_bytes, csv_bytes
+
+
+def parse_json_form_field(name: str, default):
+    """Decode a JSON form field safely."""
+    raw = request.form.get(name)
+    if not raw:
+        return default
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON payload for {name}.") from exc
+
+
+def render_certificate_records(template_bytes: bytes, csv_bytes: bytes, text_boxes: list, options: dict):
+    """Generate certificate payloads fully in memory."""
+    rows, fieldnames = parse_csv_bytes(csv_bytes)
+    if not rows:
+        return {"count": 0, "files": [], "fieldnames": fieldnames}
+
+    output_format = (options.get("output_format") or "png").lower()
+    if output_format not in {"png", "pdf"}:
+        output_format = "png"
+
+    qr_config = options.get("qr", {})
+    filename_template = options.get("filename_template", "{Name}_{CertificateID}")
+    generated_records = []
+
+    with Image.open(io.BytesIO(template_bytes)).convert("RGB") as template_img:
+        for idx, row in enumerate(rows, start=1):
+            row = dict(row)
+            row["CertificateID"] = generate_certificate_id(idx)
+
+            canvas = template_img.copy()
+            draw_text_boxes(canvas, text_boxes, row)
+            maybe_draw_qr(canvas, row, qr_config)
+
+            fallback_name = f"{row.get('Name', f'recipient_{idx}')}_{row['CertificateID']}"
+            base_name = resolve_output_filename(filename_template, row, fallback_name)
+            extension = "pdf" if output_format == "pdf" else "png"
+            file_name = f"{base_name}.{extension}"
+            buffer = io.BytesIO()
+
+            if output_format == "pdf":
+                canvas.save(buffer, "PDF", resolution=100.0)
+                mimetype = "application/pdf"
+            else:
+                canvas.save(buffer, "PNG")
+                mimetype = "image/png"
+
+            generated_records.append(
+                {
+                    "name": row.get("Name", ""),
+                    "email": row.get("Email", ""),
+                    "certificate_id": row["CertificateID"],
+                    "file_name": file_name,
+                    "row": row,
+                    "content": buffer.getvalue(),
+                    "mimetype": mimetype,
+                }
+            )
+
+    return {
+        "count": len(generated_records),
+        "files": generated_records,
+        "fieldnames": fieldnames,
+    }
+
+
+def build_zip_bytes(records: list) -> bytes:
+    """Package generated in-memory certificates into a ZIP payload."""
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for record in records:
+            archive.writestr(record["file_name"], record["content"])
+    zip_buffer.seek(0)
+    return zip_buffer.getvalue()
+
+
 def generate_certificates(template_path: Path, csv_path: Path, text_boxes: list, options: dict):
     """Create personalized certificate files for every CSV row and package metadata."""
     rows, fieldnames = parse_csv_file(csv_path)
@@ -462,7 +594,7 @@ def admin_logout():
 
 @app.route("/upload-template", methods=["POST"])
 def upload_template():
-    """Upload certificate background template image."""
+    """Validate template image in memory and return its dimensions."""
     file = request.files.get("template")
     if not file:
         return jsonify({"error": "No template file provided."}), 400
@@ -471,19 +603,16 @@ def upload_template():
     if ext not in {".png", ".jpg", ".jpeg"}:
         return jsonify({"error": "Only PNG/JPG templates are supported."}), 400
 
-    template_id = uuid.uuid4().hex
-    filename = f"{template_id}{ext}"
-    save_path = TEMPLATE_DIR / filename
-    file.save(save_path)
+    template_bytes = file.read()
+    if not template_bytes:
+        return jsonify({"error": "Template file is empty."}), 400
 
-    with Image.open(save_path) as img:
+    with Image.open(io.BytesIO(template_bytes)) as img:
         width, height = img.size
 
     return jsonify(
         {
-            "template_id": template_id,
-            "template_url": f"/assets/templates/{filename}",
-            "template_path": str(save_path),
+            "template_name": safe_filename(Path(file.filename or "template.png").name),
             "width": width,
             "height": height,
         }
@@ -492,7 +621,7 @@ def upload_template():
 
 @app.route("/upload-csv", methods=["POST"])
 def upload_csv():
-    """Upload and parse recipient CSV."""
+    """Parse recipient CSV in memory without storing it on the server."""
     file = request.files.get("csv")
     if not file:
         return jsonify({"error": "No CSV file provided."}), 400
@@ -501,17 +630,14 @@ def upload_csv():
     if ext != ".csv":
         return jsonify({"error": "Please upload a .csv file."}), 400
 
-    csv_id = uuid.uuid4().hex
-    filename = f"{csv_id}.csv"
-    save_path = CSV_DIR / filename
-    file.save(save_path)
+    csv_bytes = file.read()
+    if not csv_bytes:
+        return jsonify({"error": "CSV file is empty."}), 400
 
-    rows, fieldnames = parse_csv_file(save_path)
+    rows, fieldnames = parse_csv_bytes(csv_bytes)
 
     return jsonify(
         {
-            "csv_id": csv_id,
-            "csv_path": str(save_path),
             "fieldnames": fieldnames,
             "rows": len(rows),
             "sample": rows[0] if rows else {},
@@ -543,110 +669,109 @@ def add_text_box():
 
 @app.route("/preview", methods=["POST"])
 def preview():
-    """Generate one preview certificate using the first CSV row."""
-    payload = request.get_json(force=True)
-    template_path = Path(payload.get("template_path", ""))
-    csv_path = Path(payload.get("csv_path", ""))
-    text_boxes = payload.get("text_boxes", [])
-    qr_config = payload.get("qr", {})
+    """Generate one preview certificate fully in memory."""
+    try:
+        template_bytes, csv_bytes = load_request_files()
+        text_boxes = parse_json_form_field("text_boxes", [])
+        qr_config = parse_json_form_field("qr", {})
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
-    if not template_path.exists() or not csv_path.exists():
-        return jsonify({"error": "Template or CSV path is invalid."}), 400
-
-    rows, _ = parse_csv_file(csv_path)
+    rows, _ = parse_csv_bytes(csv_bytes)
     if not rows:
         return jsonify({"error": "CSV has no data rows."}), 400
 
     row = dict(rows[0])
     row["CertificateID"] = generate_certificate_id(1)
 
-    with Image.open(template_path).convert("RGB") as img:
+    with Image.open(io.BytesIO(template_bytes)).convert("RGB") as img:
         canvas = img.copy()
         draw_text_boxes(canvas, text_boxes, row)
         maybe_draw_qr(canvas, row, qr_config)
 
-        preview_name = f"preview_{uuid.uuid4().hex[:8]}.png"
-        preview_path = PREVIEW_DIR / preview_name
-        canvas.save(preview_path, "PNG")
+        preview_buffer = io.BytesIO()
+        canvas.save(preview_buffer, "PNG")
 
-    return jsonify({"preview_url": f"/assets/previews/{preview_name}", "sample_row": row})
+    preview_data = base64.b64encode(preview_buffer.getvalue()).decode("ascii")
+    return jsonify({"preview_data_url": f"data:image/png;base64,{preview_data}", "sample_row": row})
 
 
 @app.route("/generate", methods=["POST"])
 def generate():
-    """Bulk-generate certificates from template and CSV."""
-    payload = request.get_json(force=True)
-    template_path = Path(payload.get("template_path", ""))
-    csv_path = Path(payload.get("csv_path", ""))
-    text_boxes = payload.get("text_boxes", [])
-    options = payload.get("options", {})
+    """Bulk-generate certificates and return a ZIP directly without server storage."""
+    try:
+        template_bytes, csv_bytes = load_request_files()
+        text_boxes = parse_json_form_field("text_boxes", [])
+        options = parse_json_form_field("options", {})
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
-    if not template_path.exists() or not csv_path.exists():
-        return jsonify({"error": "Template or CSV path not found."}), 400
-
-    result = generate_certificates(template_path, csv_path, text_boxes, options)
+    result = render_certificate_records(template_bytes, csv_bytes, text_boxes, options)
     if result["count"] == 0:
         return jsonify({"error": "CSV has no rows to generate certificates."}), 400
 
-    return jsonify(
-        {
-            "message": "Certificates generated successfully.",
-            "count": result["count"],
-            "batch_id": result["batch_id"],
-            "zip_download": f"/download/{result['batch_id']}",
-        }
+    zip_bytes = build_zip_bytes(result["files"])
+    zip_name = f"certificates_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+    response = send_file(
+        io.BytesIO(zip_bytes),
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name=zip_name,
     )
+    response.headers["X-Certificate-Count"] = str(result["count"])
+    response.headers["X-Storage-Mode"] = "stateless"
+    return response
 
 
 @app.route("/generate-single", methods=["POST"])
 def generate_single():
-    """Generate one certificate from a specific CSV row index."""
-    payload = request.get_json(force=True)
-    template_path = Path(payload.get("template_path", ""))
-    csv_path = Path(payload.get("csv_path", ""))
-    text_boxes = payload.get("text_boxes", [])
-    options = payload.get("options", {})
+    """Generate one certificate and return it directly without writing to disk."""
     try:
-        row_index = int(payload.get("row_index", 1))
-    except (TypeError, ValueError):
-        return jsonify({"error": "Row index must be a valid number."}), 400
-
-    if not template_path.exists() or not csv_path.exists():
-        return jsonify({"error": "Template or CSV path not found."}), 400
-
-    try:
-        result = generate_single_certificate(template_path, csv_path, text_boxes, options, row_index)
+        template_bytes, csv_bytes = load_request_files()
+        text_boxes = parse_json_form_field("text_boxes", [])
+        options = parse_json_form_field("options", {})
+        row_index = int(request.form.get("row_index", 1))
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
+    except TypeError:
+        return jsonify({"error": "Row index must be a valid number."}), 400
 
-    return jsonify(
-        {
-            "message": "Single certificate generated successfully.",
-            "file_name": result["file_name"],
-            "row_index": result["row_index"],
-            "name": result["name"],
-            "certificate_id": result["certificate_id"],
-            "download_url": f"/download-single/{result['file_name']}",
-        }
+    result = render_certificate_records(template_bytes, csv_bytes, text_boxes, options)
+    if result["count"] == 0:
+        return jsonify({"error": "CSV has no rows to generate certificates."}), 400
+    if row_index < 1 or row_index > result["count"]:
+        return jsonify({"error": f"Row index out of range. Valid range is 1 to {result['count']}."}), 400
+
+    record = result["files"][row_index - 1]
+    response = send_file(
+        io.BytesIO(record["content"]),
+        mimetype=record["mimetype"],
+        as_attachment=True,
+        download_name=record["file_name"],
     )
+    response.headers["X-Row-Index"] = str(row_index)
+    response.headers["X-Recipient-Name"] = record.get("name", "")
+    response.headers["X-Certificate-ID"] = record.get("certificate_id", "")
+    return response
 
 
 @app.route("/preview-filename", methods=["POST"])
 def preview_filename():
-    """Preview resolved output filename for a selected CSV row and template."""
-    payload = request.get_json(force=True)
-    csv_path = Path(payload.get("csv_path", ""))
-    filename_template = payload.get("filename_template", "{Name}_{CertificateID}")
-    output_format = (payload.get("output_format", "png") or "png").lower()
+    """Preview resolved output filename for a selected CSV row without storing the CSV."""
+    csv_file = request.files.get("csv")
+    if not csv_file:
+        return jsonify({"error": "No CSV file provided."}), 400
+
     try:
-        row_index = int(payload.get("row_index", 1))
+        row_index = int(request.form.get("row_index", 1))
     except (TypeError, ValueError):
         return jsonify({"error": "Row index must be a valid number."}), 400
 
-    if not csv_path.exists():
-        return jsonify({"error": "CSV path not found."}), 400
+    filename_template = request.form.get("filename_template", "{Name}_{CertificateID}")
+    output_format = (request.form.get("output_format", "png") or "png").lower()
+    csv_bytes = csv_file.read()
+    rows, _ = parse_csv_bytes(csv_bytes)
 
-    rows, _ = parse_csv_file(csv_path)
     if not rows:
         return jsonify({"error": "CSV has no rows."}), 400
     if row_index < 1 or row_index > len(rows):
@@ -698,36 +823,38 @@ def test_smtp():
 
 @app.route("/send-email", methods=["POST"])
 def send_email():
-    """Send generated certificates as email attachments via SMTP."""
-    payload = request.get_json(force=True)
-    batch_id = payload.get("batch_id")
-    smtp_host = payload.get("smtp_host", "smtp.gmail.com").strip() or "smtp.gmail.com"
+    """Generate certificates in memory and email them directly via user-provided SMTP settings."""
     try:
-        smtp_port = int(payload.get("smtp_port", 587))
+        template_bytes, csv_bytes = load_request_files()
+        text_boxes = parse_json_form_field("text_boxes", [])
+        options = parse_json_form_field("options", {})
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    smtp_host = request.form.get("smtp_host", "smtp.gmail.com").strip() or "smtp.gmail.com"
+    try:
+        smtp_port = int(request.form.get("smtp_port", 587))
     except (TypeError, ValueError):
         return jsonify({"error": "SMTP port must be a valid number."}), 400
-    smtp_security = (payload.get("smtp_security", "tls") or "tls").strip().lower()
+    smtp_security = (request.form.get("smtp_security", "tls") or "tls").strip().lower()
     if smtp_security not in {"tls", "ssl", "none"}:
         smtp_security = "tls"
-    sender_name = (payload.get("sender_name", "") or "").strip()
-    gmail_user = payload.get("gmail_user", "").strip()
-    gmail_app_password = payload.get("gmail_app_password", "").strip()
-    subject = payload.get("subject", "Your Certificate")
-    body_template = payload.get("body", "Hello {Name},\n\nPlease find your certificate attached.\n\nRegards")
-
-    if not batch_id:
-        return jsonify({"error": "Missing batch_id."}), 400
+    sender_name = (request.form.get("sender_name", "") or "").strip()
+    gmail_user = request.form.get("gmail_user", "").strip()
+    gmail_app_password = request.form.get("gmail_app_password", "").strip()
+    subject = request.form.get("subject", "Your Certificate")
+    body_template = request.form.get(
+        "body",
+        "Hello {Name},\n\nPlease find your certificate attached.\n\nRegards",
+    )
 
     if not gmail_user or not gmail_app_password:
         return jsonify({"error": "Sender email and SMTP/app password are required."}), 400
 
-    metadata_path = BATCH_DIR / batch_id / "metadata.json"
-    if not metadata_path.exists():
-        return jsonify({"error": "Batch not found. Generate certificates first."}), 404
-
-    records = json.loads(metadata_path.read_text(encoding="utf-8"))
+    result = render_certificate_records(template_bytes, csv_bytes, text_boxes, options)
+    records = result["files"]
     if not records:
-        return jsonify({"error": "No generated files found in this batch."}), 400
+        return jsonify({"error": "CSV has no rows to generate certificates."}), 400
 
     sent = 0
     failed = []
@@ -749,21 +876,17 @@ def send_email():
                     msg["From"] = f"{sender_name} <{gmail_user}>" if sender_name else gmail_user
                     msg["To"] = recipient
                     msg["Subject"] = subject
+                    msg.set_content(replace_placeholders(body_template, record.get("row", {})))
 
-                    body = replace_placeholders(body_template, record.get("row", {}))
-                    msg.set_content(body)
-
-                    attachment_path = Path(record["file_path"])
-                    attachment_bytes = attachment_path.read_bytes()
-                    guessed_type, _ = mimetypes.guess_type(attachment_path.name)
+                    guessed_type, _ = mimetypes.guess_type(record["file_name"])
                     maintype, subtype = ("application", "octet-stream")
                     if guessed_type and "/" in guessed_type:
                         maintype, subtype = guessed_type.split("/", 1)
                     msg.add_attachment(
-                        attachment_bytes,
+                        record["content"],
                         maintype=maintype,
                         subtype=subtype,
-                        filename=attachment_path.name,
+                        filename=record["file_name"],
                     )
 
                     smtp.send_message(msg)
@@ -773,7 +896,7 @@ def send_email():
     except Exception as exc:  # noqa: BLE001
         return jsonify({"error": f"SMTP connection/login failed: {exc}"}), 400
 
-    return jsonify({"sent": sent, "failed": failed, "total": len(records)})
+    return jsonify({"sent": sent, "failed": failed, "total": len(records), "storage": "stateless"})
 
 
 @app.route("/download/<batch_id>")

@@ -231,7 +231,7 @@ body {
   height: 100%;
 }
 
-.splash-cursor-container {
+.shapegrid-container-hero {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -239,10 +239,10 @@ body {
   z-index: 1;
   pointer-events: none;
   overflow: hidden;
-  opacity: 0.9;
+  opacity: 0.96;
 }
 
-.splash-cursor-container canvas {
+.shapegrid-container-hero canvas {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -456,7 +456,9 @@ body {
 
 .hero .overlay-layer {
   z-index: 2;
-  background: linear-gradient(120deg, rgba(0, 0, 0, 0.62), rgba(0, 0, 0, 0.3));
+  background:
+    radial-gradient(circle at 50% 50%, rgba(2, 11, 24, 0.2), transparent 38%),
+    linear-gradient(120deg, rgba(0, 0, 0, 0.52), rgba(0, 0, 0, 0.24));
 }
 
 .hero .content {

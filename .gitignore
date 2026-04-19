@@ -1,5 +1,6 @@
-﻿__pycache__/
+__pycache__/
 *.pyc
+.tmp/
 .venv/
 .env
 output/templates/*
